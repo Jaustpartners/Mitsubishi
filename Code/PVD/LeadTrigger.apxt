@@ -1,0 +1,107 @@
+/* Trigger Name   : LeadTrigger
+* Description     : This trigger is used to Share the lead. 
+* Created By      : 
+* Created Date    : 04-05-2017
+* Modification Log:  
+* --------------------------------------------------------------------------------------------------------------------------------------
+* Developer                Date                   Description 
+* ---------------------------------------------------------------------------------------------------------------------------------------
+* AK                    04-05-2017              Initial Version
+* ****************************************************************************************************/
+trigger LeadTrigger on Lead(before insert, after insert, after update) {
+
+    if (trigger.isBefore && trigger.isInsert) {
+        for (Lead newLead : Trigger.new) {
+            if (newLead.Crosssell_User_Name__c == null) {
+                newLead.Crosssell_User_Name__c = newLead.Lead_Owner_Name__c;
+            }
+            if (newLead.Crosssell_User_Email__c == null) {
+                newLead.Crosssell_User_Email__c = newLead.Lead_Owner_Email__c;
+            }
+            if (newLead.Share_this_Lead__c != null && newLead.Crosssell_Lead_Id__c == null) {
+                newLead.LeadSource = 'Cross Sell - PVD';
+            }
+        }
+    }
+
+    List<Lead> updateLeadList = new List<Lead>();
+    List<Lead> shareLeadList = new List<Lead>();
+    Map<Id, String> shareLeadBUMap = new Map<Id, String>();
+    if (trigger.isAfter && trigger.isInsert) {
+        for (Lead newLead : Trigger.new) {
+            if (newLead.Share_this_Lead__c != null && newLead.Crosssell_Lead_Id__c == null) {
+                shareLeadList.add(newLead);
+                shareLeadBUMap.put(newLead.Id, newLead.Share_this_Lead__c);
+            }
+        }
+        LeadUtils.shareLeads(shareLeadList, shareLeadBUMap, true);
+    }
+
+    if (trigger.isAfter && trigger.isUpdate) {
+        List<Cross_sell_Activity_Log__c> leadStatusActivities = new List<Cross_sell_Activity_Log__c>();
+        for (Lead newLead : Trigger.new) {
+            Lead oldLead = Trigger.oldMap.get(newLead.Id);
+            if (newLead.Crosssell_Lead_Id__c != null) {
+                String oldStatus = '';
+                String newStatus = '';
+                if (newLead.IsConverted) {
+                    oldStatus = oldLead.Status;
+                    newStatus = 'Lead converted to Opportunity';
+                } else if (oldLead.Status != newLead.Status) {
+                    oldStatus = oldLead.Status;
+                    newStatus = newLead.Status;
+                }
+                if (oldStatus == '' && newStatus == '') {
+                    continue;
+                }
+                Cross_sell_Activity_Log__c log = new Cross_sell_Activity_Log__c();
+                
+                String CrossSellLogName = 'Lead Status Changed for ' + newLead.Cross_Sell_Opportunity_Name__c;
+                if(CrossSellLogName.length() > 80)
+                {
+                    CrossSellLogName = CrossSellLogName.substring(0,80);
+                }
+                log.Name = CrossSellLogName;
+                log.Log_type__c = 'Lead Status Change';
+                log.Crosssell_Lead_Id__c = newLead.Crosssell_Lead_Id__c;
+                log.Crosssell_Lead_Name__c = newLead.Name;
+                log.Crosssell_Opportunity_Id__c = newLead.Crosssell_Opportunity_Id__c;
+                log.Crosssell_Opportunity_Name__c = newLead.Cross_Sell_Opportunity_Name__c;
+                log.Crosssell_User_Email__c = newLead.Crosssell_User_Email__c;
+                log.Crosssell_User_Name__c = newLead.Crosssell_User_Name__c;
+                log.Log_created_by__c = UserInfo.getName();
+                log.Old_Status__c = oldStatus;
+                log.New_Status__c = newStatus;
+                if (newLead.LeadSource != null && newLead.LeadSource.contains('Cross Sell -')) {
+                    String buList = 'HUB,' + newLead.LeadSource.remove('Cross Sell -');
+                    log.Share_Log_with_BUs__c = buList;
+                }
+                leadStatusActivities.add(log);
+            }
+            
+            // if share this lead with another BU later in process
+            String oldShareWithBU = oldLead.Share_this_Lead__c;
+            String newShareWithBU = newLead.Share_this_Lead__c;
+            
+            if (newLead.Crosssell_Lead_Id__c == null && (oldShareWithBU != newShareWithBU)) {
+                shareLeadList.add(newLead);
+                String shareWithBUs = newShareWithBU;
+                if (oldShareWithBU != null && newShareWithBU != null)
+                    {
+                        shareWithBUs = newShareWithBU.remove(oldShareWithBU);
+                    }
+                else
+                   {
+                         shareWithBUs = 'HUB;'+shareWithBUs;
+                    }
+                   shareLeadBUMap.put(newLead.Id, shareWithBUs);
+                }
+              }
+        if (leadStatusActivities.size() > 0) {
+            insert leadStatusActivities;
+        }
+        if (shareLeadList.size() > 0) {
+            LeadUtils.shareLeads(shareLeadList, shareLeadBUMap, false);
+        }
+    }
+}

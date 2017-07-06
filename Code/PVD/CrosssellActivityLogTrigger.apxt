@@ -1,0 +1,87 @@
+/* Trigger Name   : CrosssellActivityLogTrigger
+* Description     : This trigger is used to Share the log. 
+* Created By      : 
+* Created Date    : 04-05-2017
+* Modification Log:  
+* --------------------------------------------------------------------------------------------------------------------------------------
+* Developer                Date                   Description 
+* ---------------------------------------------------------------------------------------------------------------------------------------
+* AK                    04-05-2017              Initial Version
+* ****************************************************************************************************/
+trigger CrosssellActivityLogTrigger on Cross_sell_Activity_Log__c (before insert, after insert) {
+    if (trigger.isBefore && trigger.isInsert) {
+        Map<Id, Cross_sell_Activity_Log__c> logLeadMap = new Map<Id, Cross_sell_Activity_Log__c>();
+        Map<Id, Cross_sell_Activity_Log__c> logOppyMap = new Map<Id, Cross_sell_Activity_Log__c>();
+        for (Cross_sell_Activity_Log__c shareLog : Trigger.new) {
+            if (shareLog.Log_created_by__c != UserInfo.getName()) {
+                 if (shareLog.Crosssell_Lead_Id__c != null) { 
+                    logLeadMap.put(shareLog.Crosssell_Lead_Id__c, shareLog);
+                } 
+                if (shareLog.Crosssell_Opportunity_Id__c != null) { 
+                    logOppyMap.put(shareLog.Crosssell_Opportunity_Id__c, shareLog);
+                } 
+            }
+        }
+        if (logLeadMap.keySet().size() > 0) {
+            List<Lead> leadList = [select Id from Lead where Id In :logLeadMap.keySet()];
+            for (Lead lead : leadList) {
+                Cross_sell_Activity_Log__c log = logLeadMap.get(lead.Id);
+                if (log != null) {
+                    log.Parent_Lead__c = lead.Id;
+                }
+            }
+        }
+        if (logOppyMap.keySet().size() > 0) {
+            List<Opportunity> oppyList = [select Id from Opportunity where Id In :logOppyMap.keySet()];
+            for (Opportunity o : oppyList) {
+                Cross_sell_Activity_Log__c log = logOppyMap.get(o.Id);
+                if (log != null) {
+                    log.Parent_Opportunity__c = o.Id;
+                }
+            }
+        }
+    }
+
+    if (trigger.isAfter && trigger.isInsert) {
+        List<PartnerNetworkConnection> connectionMap = new List<PartnerNetworkConnection> (
+            [select Id, AccountId, ContactId, ConnectionStatus, ConnectionName from PartnerNetworkConnection
+                where ConnectionStatus = 'Accepted']
+        );
+        Map<Id, String> accountMap = new Map<Id, String>();
+        for (Account account : [select Id, Name From Account where Name like 'ME-%']) {
+            String accountName = account.Name.remove('ME-');
+            accountMap.put(account.Id, accountName);
+        }
+        List<PartnerNetworkRecordConnection> shareLogs = new List<PartnerNetworkRecordConnection>();
+        for (Cross_sell_Activity_Log__c shareLog : Trigger.new) {
+            //System.debug('Log_created_by__c:'+ shareLog.Log_created_by__c);
+            //System.debug('UserInfo:'+ UserInfo.getName());
+            if (shareLog.Share_Log_with_BUs__c == null || shareLog.Share_Log_with_BUs__c.length() <= 0 || 
+                shareLog.Log_created_by__c != UserInfo.getName() || 
+                (shareLog.Old_Status__c == null && shareLog.New_Status__c == null)
+               ) {
+                continue;
+            }
+            for (PartnerNetworkConnection network : connectionMap) {
+                String networkAccountName = accountMap.get(network.AccountId);
+                //System.debug('sharelogBU:'+ shareLog.Share_Log_with_BUs__c);
+                if ((shareLog.Share_Log_with_BUs__c != null && shareLog.Share_Log_with_BUs__c.contains(networkAccountName))) {
+                    PartnerNetworkRecordConnection newrecord = new PartnerNetworkRecordConnection();
+
+                    newrecord.ConnectionId = network.Id;
+                    newrecord.LocalRecordId = shareLog.Id;
+                    // newrecord.ParentRecordId = shareTask.Crosssell_Lead_Id__c;
+                    // newrecord.RelatedRecords = '';
+                    newrecord.SendClosedTasks = false;
+                    newrecord.SendOpenTasks = false;
+                    newrecord.SendEmails = false;   
+
+                    shareLogs.add(newrecord);   
+                }   
+            }           
+        }
+        if (shareLogs.size() > 0) {
+            insert shareLogs;
+        }
+    }
+}

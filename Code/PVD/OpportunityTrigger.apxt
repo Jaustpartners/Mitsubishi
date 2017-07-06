@@ -1,0 +1,82 @@
+/* Trigger Name   : OpportunityTrigger
+* Description     : This trigger is used to Send the Opportunity Notifications. 
+* Created By      : 
+* Created Date    : 04-05-2017
+* Modification Log:  
+* --------------------------------------------------------------------------------------------------------------------------------------
+* Developer                Date                   Description 
+* ---------------------------------------------------------------------------------------------------------------------------------------
+* AK                    04-05-2017              Initial Version
+*
+* ****************************************************************************************************/
+trigger OpportunityTrigger on Opportunity (after insert, after update) {
+    system.debug('*** ENTER OPP TRIGGER ***');
+    List<Opportunity> shareOpportunityList = new List<Opportunity>();
+    if (trigger.isAfter && trigger.isInsert) {
+        for (Opportunity newOpportunity : Trigger.new) {
+            if (newOpportunity.Share_this_opportunity__c != null && newOpportunity.Crosssell_Lead_Id__c == null) {
+                shareOpportunityList.add(newOpportunity);
+            }
+        }
+        if (shareOpportunityList.size() > 0) {
+            system.debug('*** OPP TRIGGER: shareOpportunityList.size() > 0 ***');
+            OpportunityTriggerHandler.handleCrossSell(shareOpportunityList, false);
+             
+            
+        }
+    }
+    
+    if (trigger.isAfter && trigger.isUpdate) {
+        List<Cross_sell_Activity_Log__c> oppyStatusActivities = new List<Cross_sell_Activity_Log__c>();
+        Set<String> stageChangeList = new Set<String> { 'Negotiation/Review' , 'Closed Won' , 'Closed Lost', 'Proposal/Price Quote' };
+        for (Opportunity newOpportunity : Trigger.new) {
+            Opportunity oldOpportunity = Trigger.oldMap.get(newOpportunity.Id);
+            if (newOpportunity.Share_this_opportunity__c != null && newOpportunity.Crosssell_Lead_Id__c == null) {
+                shareOpportunityList.add(newOpportunity);
+            }
+            if (newOpportunity.Crosssell_Lead_Id__c  != null && 
+                    oldOpportunity.StageName != newOpportunity.StageName  && 
+                    stageChangeList.contains(newOpportunity.StageName)
+                    ) 
+            {
+                String oldStatus = oldOpportunity.StageName;
+                String newStatus = newOpportunity.StageName;
+                if (oldStatus == null && newStatus == null) {
+                    continue;
+                }
+                Cross_sell_Activity_Log__c log = new Cross_sell_Activity_Log__c();
+                //log.Name = 'Opportunity Stage Changed for ' + newOpportunity.Name;
+                String CrossSellLogName = 'Opportunity Stage Changed for ' + newOpportunity.Name;
+                if(CrossSellLogName.length() > 80)
+                {
+                    CrossSellLogName = CrossSellLogName.substring(0,80);
+                }
+                log.Name = CrossSellLogName;
+                log.Log_type__c = 'Opportunity Stage Change';
+                log.Crosssell_Lead_Id__c = newOpportunity.Crosssell_Lead_Id__c;
+                log.Crosssell_Lead_Name__c = newOpportunity.Name;
+                log.Parent_Opportunity__c = oldOpportunity.Id;
+               // log.Share_Log_with_BUs__c = oldOpportunity.Share_this_opportunity__c;
+                log.Crosssell_Opportunity_Id__c = newOpportunity.Crosssell_Opportunity_Id__c;
+                log.Crosssell_Opportunity_Name__c = newOpportunity.Name;
+                log.Crosssell_User_Email__c = newOpportunity.Crosssell_User_Email__c;
+                log.Crosssell_User_Name__c = newOpportunity.Crosssell_User_Name__c;
+                log.Log_created_by__c = UserInfo.getName();
+                log.Old_Status__c = oldStatus;
+                log.New_Status__c = newStatus;
+                if (newOpportunity.LeadSource != null && newOpportunity.LeadSource.contains('Cross Sell -')) {
+                    String buList = 'HUB,' + newOpportunity.LeadSource.remove('Cross Sell -');
+                    log.Share_Log_with_BUs__c = buList;
+                }
+                oppyStatusActivities.add(log);
+            }
+        }
+        if (oppyStatusActivities.size() > 0) {
+            insert oppyStatusActivities;
+        }
+        if (shareOpportunityList.size() > 0) {
+            OpportunityTriggerHandler.handleCrossSell(shareOpportunityList, true);
+        }
+    }
+    
+}

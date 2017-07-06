@@ -1,0 +1,191 @@
+/* Class Name  : OpportunityTriggerHandler
+ * Description  : class for Handling Opportunity triggers
+ * Created By   :  
+ * Created Date : 04-03-2017
+ * Modification Log: 
+ * --------------------------------------------------------------------------------------------------------------------------------------
+ * Developer                Date                 Modification ID        Description 
+ * ---------------------------------------------------------------------------------------------------------------------------------------
+ * AK                       04-03-2017                                 Initial Version.
+ */
+public class OpportunityTriggerHandler {
+
+    public static void handleCrossSell(List<Opportunity> opportunityList, Boolean isUpdate) {
+        system.debug('*** ENTER OPPTRIGGERHANDLSER ***');
+        List<Lead> newCrossSellLeadList = new List<Lead>();
+        List<Lead> updateCrossSellLeadList = new List<Lead>();
+        List<Cross_sell_Activity_Log__c> leadShareRecList = new List<Cross_sell_Activity_Log__c>();
+        Set<Id> accountIdSet = new Set<Id>();
+        Set<Id> buildingContactIdSet = new Set<Id>();
+        Set<Id> ownerIdSet = new Set<Id>();
+        Set<Id> opportunityIdSet = new Set<Id>();
+        for (Opportunity o : opportunityList) {
+            if (o.Partner_Building_Owner_Contact__c != null) {
+                buildingContactIdSet.add(o.Partner_Building_Owner_Contact__c);
+            }
+            accountIdSet.add(o.AccountId);
+            ownerIdSet.add(o.OwnerId);
+            opportunityIdSet.add(o.Id);
+        }
+        Map<Id, User> opportunityOwnerMap = getOwners(ownerIdSet);
+        Map<String, Lead> xSellLeadMap = new Map<String, Lead>();
+        if (isUpdate) {
+            List<Lead> xSellLeads = [select Id, Crosssell_Opportunity_Id__c, Share_this_Lead__c from Lead where Crosssell_Opportunity_Id__c in :opportunityIdSet];
+            for (Lead l : xSellLeads) {
+                xSellLeadMap.put(l.Crosssell_Opportunity_Id__c, l);
+            }
+        }
+        Map<Id, Account> accountMap = new Map<Id, Account>([select Id, Name from Account where Id in :accountIdSet]);
+        Map<Id, Contact> buildingContactMap = new Map<Id, Contact>([select Id, Name, FirstName, LastName, Email, Phone from Contact where Id in :buildingContactIdSet]);
+        for (Opportunity project : opportunityList) {
+            Lead xSellLead = xSellLeadMap.get(project.Id);
+            if (isUpdate && (xSellLead != null)) {
+                if (xSellLead != null && 
+                    xSellLead.Share_this_Lead__c != null && 
+                    project.Share_this_opportunity__c != null && 
+                    xSellLead.Share_this_Lead__c == project.Share_this_opportunity__c) 
+                { // opportunity already shared
+                    continue;
+                }
+                if (xSellLead != null && 
+                    xSellLead.Share_this_Lead__c != null && 
+                    project.Share_this_opportunity__c != null && 
+                    xSellLead.Share_this_Lead__c != project.Share_this_opportunity__c) 
+                { // opportunity now shared with more BUs
+                    xSellLead.Share_this_Lead__c = project.Share_this_opportunity__c;
+                    updateCrossSellLeadList.add(xSellLead);
+                    continue;
+                }
+            } 
+            else {
+                if (project.Share_this_opportunity__c != null) { // new opportunity shared after insert
+                    User opportunityOwner = opportunityOwnerMap.get(project.OwnerId);
+                    Account opportunityAccount = null;
+                    if (project.AccountId != null) {
+                        opportunityAccount = accountMap.get(project.AccountId);
+                    }
+ 
+                    Lead crossSellLead = new Lead();
+
+                    if (project.Partner_Building_Owner_Company__c != null) {
+                        Account a = [select Id, Name From Account where Id = :project.Partner_Building_Owner_Company__c];
+                        crossSellLead.Bldg_Owner_Company__c = a.Name;
+                        crossSellLead.Company = a.Name;
+                    }
+                    else
+                        crossSellLead.Company = 'UNKNOWN';
+                    if (project.Partner_General_Contractor_Company__c != null) {
+                        Account a = [select Id, Name From Account where Id = :project.Partner_General_Contractor_Company__c];
+                        crossSellLead.GC_Company__c = a.Name;
+                    }
+                    if (project.Partner_Mechanical_Contractor_Company__c != null) {
+                        Account a = [select Id, Name From Account where Id = :project.Partner_Mechanical_Contractor_Company__c];
+                        crossSellLead.MC_Company__c = a.Name;
+                    }
+                    if (project.Partner_Architect_Company__c != null) {
+                        Account a = [select Id, Name From Account where Id = :project.Partner_Architect_Company__c];
+                        crossSellLead.Architect_Company__c = a.Name;
+                    }
+ 
+
+                    if (project.Partner_Building_Owner_Contact__c != null) {
+                        Contact c = [select Id, FirstName, LastName, Email, Phone From Contact where Id = :project.Partner_Building_Owner_Contact__c];
+                        crossSellLead.Bldg_Owner_Contact_First_Name__c = c.FirstName;
+                        crossSellLead.Bldg_Owner_Contact_Last_Name__c = c.LastName;
+                        crossSellLead.Bldg_Owner_Contact_Phone__c = c.Phone;
+                        crossSellLead.Bldg_Owner_Contact_Email__c = c.Email;
+                        // SET STANDARD LEAD FIELDS TO BUILDING OWNER (PER IST TEAM...:
+                        crossSellLead.FirstName = c.FirstName;
+                        crossSellLead.LastName = c.LastName;
+                        crossSellLead.Phone = c.Phone;
+                        crossSellLead.Email = c.Email;
+                    }
+
+                    if (project.Partner_General_Contractor_Contact__c != null) {
+                        Contact c = [select Id, FirstName, LastName, Email, Phone From Contact where Id = :project.Partner_General_Contractor_Contact__c];
+                        crossSellLead.GC_Contact_First_Name__c = c.FirstName;
+                        crossSellLead.GC_Contact_Last_Name__c = c.LastName;
+                        crossSellLead.GC_Contact_Phone__c = c.Phone;
+                        crossSellLead.GC_Contact_Email__c = c.Email;
+                    }
+
+                    if (project.Partner_Mechanical_Contractor_Contact__c != null) {
+                        Contact c = [select Id, FirstName, LastName, Email, Phone From Contact where Id = :project.Partner_Mechanical_Contractor_Contact__c];
+                        crossSellLead.MC_Contact_First_Name__c = c.FirstName;
+                        crossSellLead.MC_Contact_Last_Name__c = c.LastName;
+                        crossSellLead.MC_Contact_Phone__c = c.Phone;
+                        crossSellLead.MC_Contact_Email__c = c.Email;
+                    }
+ 
+                    if (project.Partner_Architect_Contact__c != null) {
+                        Contact c = [select Id, FirstName, LastName, Email, Phone From Contact where Id = :project.Partner_Architect_Contact__c];
+                        crossSellLead.Architect_Contact_First_Name__c = c.FirstName;
+                        crossSellLead.Architect_Contact_Last_Name__c = c.LastName;
+                        crossSellLead.Architect_Contact_Phone__c = c.Phone;
+                        crossSellLead.Architect_Contact_Email__c = c.Email;
+                    }
+
+                    crossSellLead.Cross_Sell_Notes__c = project.Cross_Sell_Notes__c;
+                    crossSellLead.Building_Type__c = project.Building_Type__c;
+                    crossSellLead.CrossellBuildingType__c = project.Building_Type__c;  //for HVAC...
+                    crossSellLead.Public_Private__c = project.Public_Private__c;
+
+                    crossSellLead.LeadSource = Label.Cross_Sell_Source;
+                    crossSellLead.Street = project.Project_Street_Address__c;
+                    crossSellLead.City = project.Project_City__c;
+                    crossSellLead.State = project.Project_State__c;
+                    // crossSellLead.Country = project.Project_Country__c; // No country in EED
+                    crossSellLead.PostalCode = project.Project_Postal_Code__c;
+                    crossSellLead.Project_Street__c = project.Project_Street_Address__c;
+                    crossSellLead.Project_City__c = project.Project_City__c;
+                    crossSellLead.Project_State__c = project.Project_State__c;
+                    // crossSellLead.Project_Country__c = project.Project_Country__c; // No country in EED
+                    crossSellLead.Project_Zip__c = project.Project_Postal_Code__c;
+                    crossSellLead.Share_this_Lead__c = project.Share_this_opportunity__c;
+                    crossSellLead.Crosssell_User_Name__c = opportunityOwner.Name;
+                    crossSellLead.Crosssell_User_Email__c = opportunityOwner.Email;
+                    crossSellLead.Cross_Sell_User_Organization__c = userinfo.getOrganizationName();
+                    system.debug('### Cross Sell User Organization:  ' + crossSellLead.Cross_Sell_User_Organization__c);
+                    crossSellLead.Crosssell_Opportunity_Id__c = project.Id;
+                    crossSellLead.Cross_Sell_Opportunity_Name__c = project.Name;
+                    crossSellLead.Building_Class__c = project.Building_Class__c;
+                    crossSellLead.Expected_Completion__c = project.Expected_Completion__c;
+                    crossSellLead.Number_Of_Floors__c = project.Number_Of_Floors__c;
+                    newCrossSellLeadList.add(crossSellLead);
+           
+              		Cross_sell_Activity_Log__c leadSharedRec = new Cross_sell_Activity_Log__c (
+                    Name = 'New Lead Shared', Log_type__c = 'Lead Status Change',
+                    Parent_Opportunity__c= project.id,Share_Log_with_BUs__c = 'HUB',
+                    Crosssell_Opportunity_Id__c = project.id,
+                    Crosssell_Opportunity_Name__c = project.Name,
+                    Log_created_by__c = UserInfo.getName(),New_Status__c = 'Lead Shared');
+              		leadShareRecList.add(leadSharedRec); 
+                }
+            }
+        }
+        if (updateCrossSellLeadList.size() > 0 ) {
+            update updateCrossSellLeadList;
+        } 
+        
+        if(newCrossSellLeadList.size() > 0){
+            //system.debug('*** ENTER OPPTRIGGERHANDLSER : insert newCrossSellLeadList; ***');
+            insert newCrossSellLeadList;
+            insert leadShareRecList;
+        }
+    }
+    
+    public static Map<Id, User> getOwners(Set<Id> owners) {
+        Map<Id, User> theMap = new Map<Id, User>([
+            SELECT Id,
+                ContactId,
+                Contact.AccountId,
+                Email,
+                Name
+            FROM User
+            WHERE Id IN :owners
+        ]);  
+        return theMap; 
+    }
+
+
+}

@@ -1,0 +1,61 @@
+/* Class Name  : LeadUtils
+ * Description  : class for Handling Lead triggers
+ * Created By   :  
+ * Created Date : 04-03-2017
+ * Modification Log: 
+ * --------------------------------------------------------------------------------------------------------------------------------------
+ * Developer                Date                 Modification ID        Description 
+ * ---------------------------------------------------------------------------------------------------------------------------------------
+ * AK                       04-03-2017                                 Initial Version
+ */
+public class LeadUtils {
+
+    public static void shareLeads(List<Lead> leadList, Map<Id, String> shareLeadBUMap, Boolean isInsert) {
+        List<PartnerNetworkConnection> connectionMap = new List<PartnerNetworkConnection> (
+            [select Id, AccountId, ContactId, ConnectionStatus, ConnectionName from PartnerNetworkConnection
+                where ConnectionStatus = 'Accepted']
+        );
+        Set<Id> contactIdSet = new Set<Id>();
+        for (PartnerNetworkConnection network : connectionMap) {
+        	if (network.ContactId != null) {
+	        	contactIdSet.add(network.ContactId);
+        	}
+        }
+        Map<Id, Contact> contactMap = new Map<Id, Contact>();
+        for (Contact contact : [select Id, Name, Email From Contact where Id in :contactIdSet]) {
+        	contactMap.put(contact.Id, contact);
+        }
+        String hubAccountId = null;
+        Map<Id, String> accountMap = new Map<Id, String>();
+        for (Account account : [select Id, Name From Account where Name like 'ME-%']) {
+            if (account.Name == 'ME-HUB') {
+                hubAccountId = account.Id;
+            }
+            String accountName = account.Name.remove('ME-');
+            accountMap.put(account.Id, accountName);
+        }
+        List<PartnerNetworkRecordConnection> sharedLeads = new List<PartnerNetworkRecordConnection>();
+        for (Lead lead: leadList) {
+        	String shareWithBUs = shareLeadBUMap.get(lead.Id);
+            for (PartnerNetworkConnection network : connectionMap) {
+                String networkAccountName = accountMap.get(network.AccountId);
+                System.debug('### hubAccountId : ' + hubAccountId);
+                System.debug('### networkAccountName : ' + networkAccountName);
+                System.debug('### shareWithBUs : ' + shareWithBUs);
+                if ((isInsert && hubAccountId != null && hubAccountId.equalsIgnoreCase(network.AccountId)) || (shareWithBUs.contains(networkAccountName))) {
+                    PartnerNetworkRecordConnection newrecord = new PartnerNetworkRecordConnection();
+
+                    newrecord.ConnectionId = network.Id;
+                    newrecord.LocalRecordId = lead.Id;  
+                    // newrecord.RelatedRecords = '';
+                    newrecord.SendClosedTasks = false;
+                    newrecord.SendOpenTasks = false;
+                    newrecord.SendEmails = false;   
+
+                    sharedLeads.add(newrecord);
+                }   
+           }           
+        }
+        insert sharedLeads;   
+    }
+}
